@@ -3,7 +3,7 @@ name: hebrew-document-translation
 description: Translate documents (PDF, Word, plain text) from English into professional, publication-quality Hebrew, preserving structure, formatting, tables, and terminology, with correct RTL layout. Works for any document type or subject matter (reports, contracts, manuals, marketing materials, legal or financial documents, correspondence, exams, or anything else) and for any organization or field, nothing about this skill is specific to one industry. Use this whenever the user asks to translate any document into Hebrew; whenever they want a Hebrew translation delivered as a proper Word/PDF file rather than plain chat text; and whenever they ask a new translation to "match", "align to", or "look like" the style/template of a previous or reference Hebrew document (cover page, headers/footers, table of contents, table styling, terminology). Also use when the user asks to build a reusable template/skill for this kind of translation work.
 license: MIT
 allowed-tools: Bash(python:*) Bash(pip:*) Bash(node:*) Bash(npm:*) Bash(pdfimages:*) Bash(pdftotext:*) Bash(pdfinfo:*) Bash(grep:*) Bash(mkdir:*)
-compatibility: Requires Node.js with the docx package for document generation, Python 3 with Pillow (PIL) for logo/color extraction, and poppler-utils (pdfimages, pdftotext, pdfinfo) plus LibreOffice for PDF rendering and verification.
+compatibility: Requires Node.js with the docx package (and jszip, which docx installs) for document generation, Python 3 with Pillow (PIL) for logo/color extraction, and poppler-utils (pdfimages, pdftotext, pdfinfo) plus LibreOffice for PDF rendering and verification.
 ---
 
 # Hebrew Document Translation
@@ -116,6 +116,9 @@ output. See `scripts/rtl_docx_helpers.js` for ready-to-use helpers, and the rule
   orders the line. Only in a paragraph with no Latin letters (digits allowed) flag `rightToLeft`
   on its Hebrew runs, which is what anchors a trailing colon (`מחלות רקע:`) correctly. This is
   the rule the `hebrew-document-generator` skill documents for python-docx; it applies equally here.
+- Set `<w:bidi/>` on the section too, not only on paragraphs, so page flow, mirrored margins, and
+  header/footer flow are RTL. docx-js has no option for it, so write the file with
+  `packRtlDocx(doc)` from the helpers instead of `Packer.toBuffer(doc)`.
 - Don't put `rightToLeft` in the document's default run style: every run that doesn't override it
   (page-number fields, an English copyright line) would inherit RTL.
 - Use a font with solid Hebrew glyph coverage, `Arial` renders cleanly and matches most
@@ -221,7 +224,7 @@ Official sources for verifying and updating the information in this skill:
 |--------|-----|---------------|
 | docx (npm package) documentation | https://docx.js.org/ | API for Paragraph, TextRun, Table, Header/Footer, and the bidirectional/rightToLeft/visuallyRightToLeft options |
 | Unicode Bidirectional Algorithm (UAX #9) | https://unicode.org/reports/tr9/ | The underlying rules for how mixed Hebrew/English text should reorder for display |
-| Academy of the Hebrew Language (overview) | https://he.wikipedia.org/wiki/האקדמיה_ללשון_העברית | Starting orientation on the body that rules on official Hebrew style and terminology; cross-check against the Academy's own current guidance for binding rulings |
+| Academy of the Hebrew Language - decisions | https://hebrew-academy.org.il/topic/hahlatot/ | The Academy's own published decisions on Hebrew spelling, grammar, punctuation, and terminology |
 | poppler-utils documentation | https://poppler.freedesktop.org/ | pdfimages, pdftotext, pdfinfo usage and options |
 | LibreOffice command-line documentation | https://help.libreoffice.org/latest/en-US/text/shared/guide/start_parameters.html | --headless --convert-to usage and known limitations (e.g. TOC fields not recalculating) |
 

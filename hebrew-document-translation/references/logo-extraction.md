@@ -8,7 +8,7 @@ PDF rather than recreating it - it'll be pixel-identical and saves a lot of gues
 
 ```bash
 mkdir -p assets
-pdfimages -all -f 1 -l 1 "/path/to/reference.pdf" assets/page1
+pdfimages -png -f 1 -l 1 "/path/to/reference.pdf" assets/page1
 ```
 ```python
 from PIL import Image
@@ -18,9 +18,9 @@ for path in sorted(glob.glob('assets/page1-*.png')):
         print(path, im.mode, im.size)
 ```
 
-`-all` preserves native format (usually gives you real `.png` files directly). If you only get
-`.ppm` files, re-run with `-all` - plain `pdfimages` without flags sometimes falls back to a lossy
-raw dump.
+`-png` writes every image as PNG, so the `*.png` glob above always finds them. Don't use `-all`
+here: it keeps JPEG/JPEG2000/JBIG2/CCITT images in their native formats, which the glob would miss,
+and plain `pdfimages` with no format flag writes `.ppm`/`.pbm` files.
 
 ## 2. Recover transparency, if the logo looks wrong (solid black background, wrong colors)
 

@@ -16,6 +16,7 @@ const {
   PageBreak, Header, Footer, PageNumber, ImageRun, VerticalAlign, TableLayoutType
 } = require('docx');
 const fs = require('fs');
+const JSZip = require('jszip'); // installed as a dependency of docx; `npm i jszip` if your setup doesn't hoist it
 
 // ---- adjust these to match your document / extracted reference colors ----
 const FONT = "Arial";          // solid Hebrew glyph coverage; swap for "David" if source uses a serif
@@ -265,9 +266,28 @@ function buildDocumentSkeleton({ coverChildren, bodyChildren, header, footer, co
   });
 }
 
+// ================= SECTION-LEVEL RTL (sectPr <w:bidi/>) =================
+// docx-js has no section option for <w:bidi/>, so paragraphs can be RTL while the section itself
+// (page flow, mirrored margins/gutter, header/footer flow) stays LTR. Pack with this instead of
+// Packer.toBuffer: it adds <w:bidi/> to every sectPr. Schema order puts w:bidi after titlePg/
+// textDirection and before rtlGutter/docGrid, so it is inserted ahead of those when present.
+async function packRtlDocx(doc) {
+  const { Packer } = require('docx');
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
+  const xml = await zip.file('word/document.xml').async('string');
+  const patched = xml.replace(/<w:sectPr\b[^>]*>[\s\S]*?<\/w:sectPr>/g, sect => {
+    if (sect.includes('<w:bidi/>')) return sect;
+    const anchor = sect.search(/<w:(rtlGutter|docGrid|printerSettings|sectPrChange)\b/);
+    const at = anchor >= 0 ? anchor : sect.lastIndexOf('</w:sectPr>');
+    return sect.slice(0, at) + '<w:bidi/>' + sect.slice(at);
+  });
+  zip.file('word/document.xml', patched);
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
 module.exports = {
   FONT, BRAND_BLUE, GRAY_LINE, logoImage,
   scriptRuns, p, heading1, heading2, cellParagraph, cell,
   buildHeader, buildEmptyHeader, buildFooter,
-  tocRow, buildTocTable, buildDocumentSkeleton
+  tocRow, buildTocTable, buildDocumentSkeleton, packRtlDocx
 };

@@ -95,6 +95,9 @@
   ש-`bidirectional: true` של הפסקה כבר מסדר את השורה נכון. רק בפסקה בלי אותיות לטיניות (ספרות
   מותרות) מסמנים `rightToLeft` על הריצות העבריות, וזה מה שמעגן נקודתיים בסוף (`מחלות רקע:`) במקום
   הנכון. זה הכלל שמתועד עבור python-docx בסקיל `hebrew-document-generator`, והוא חל באותה מידה גם כאן.
+- להגדיר `<w:bidi/>` גם ברמת המקטע (section) ולא רק בפסקאות, כדי שזרימת העמוד, השוליים המשוקפים
+  וזרימת הכותרות העליונות/התחתונות יהיו RTL. ל-docx-js אין אפשרות לכך, ולכן יש לכתוב את הקובץ
+  עם `packRtlDocx(doc)` מפונקציות העזר במקום `Packer.toBuffer(doc)`.
 - לא לשים `rightToLeft` בסגנון הריצה ברירת המחדל של המסמך: כל ריצה שלא דורסת אותו (שדות מספרי
   עמודים, שורת זכויות יוצרים באנגלית) תירש RTL.
 - להשתמש בגופן עם כיסוי גליפים עברי טוב - `Arial` נראה נקי ומתאים לרוב התבניות התאגידיות/
@@ -195,7 +198,7 @@ pdfinfo output.pdf | grep Pages   # לוודא שמספר העמודים לא ה
 |--------|-----|---------------|
 | תיעוד חבילת ה-npm של docx | https://docx.js.org/ | ה-API של Paragraph, TextRun, Table, Header/Footer, והאפשרויות bidirectional/rightToLeft/visuallyRightToLeft |
 | אלגוריתם הדו-כיווניות של יוניקוד (UAX #9) | https://unicode.org/reports/tr9/ | הכללים הבסיסיים לאופן שבו טקסט מעורב עברית/אנגלית אמור להיסדר מחדש לתצוגה |
-| האקדמיה ללשון העברית (סקירה כללית) | https://he.wikipedia.org/wiki/האקדמיה_ללשון_העברית | נקודת התמצאות ראשונית לגבי הגוף שקובע כללי סגנון ומינוח רשמיים בעברית; לאמת מול ההנחיות העדכניות של האקדמיה עצמה להכרעות מחייבות |
+| האקדמיה ללשון העברית - החלטות | https://hebrew-academy.org.il/topic/hahlatot/ | ההחלטות שהאקדמיה עצמה פרסמה בענייני כתיב, דקדוק, פיסוק ומינוח |
 | תיעוד poppler-utils | https://poppler.freedesktop.org/ | שימוש ואפשרויות של pdfimages, pdftotext, pdfinfo |
 | תיעוד שורת הפקודה של LibreOffice | https://help.libreoffice.org/latest/en-US/text/shared/guide/start_parameters.html | שימוש ב-`--headless --convert-to` ומגבלות ידועות (למשל שדות תוכן עניינים שלא מתעדכנים) |
 
