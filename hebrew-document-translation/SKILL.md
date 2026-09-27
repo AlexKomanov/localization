@@ -3,7 +3,7 @@ name: hebrew-document-translation
 description: Translate documents (PDF, Word, plain text) from English into professional, publication-quality Hebrew, preserving structure, formatting, tables, and terminology, with correct RTL layout. Works for any document type or subject matter (reports, contracts, manuals, marketing materials, legal or financial documents, correspondence, exams, or anything else) and for any organization or field, nothing about this skill is specific to one industry. Use this whenever the user asks to translate any document into Hebrew; whenever they want a Hebrew translation delivered as a proper Word/PDF file rather than plain chat text; and whenever they ask a new translation to "match", "align to", or "look like" the style/template of a previous or reference Hebrew document (cover page, headers/footers, table of contents, table styling, terminology). Also use when the user asks to build a reusable template/skill for this kind of translation work.
 license: MIT
 allowed-tools: Bash(python:*) Bash(pip:*) Bash(node:*) Bash(npm:*) Bash(pdfimages:*) Bash(pdftotext:*) Bash(pdfinfo:*) Bash(grep:*) Bash(mkdir:*)
-compatibility: Requires Node.js with the docx package (and jszip, which docx installs) for document generation, Python 3 with Pillow (PIL) for logo/color extraction, and poppler-utils (pdfimages, pdftotext, pdfinfo) plus LibreOffice for PDF rendering and verification.
+compatibility: Requires Node.js with the docx and jszip packages installed directly (npm i docx jszip) for document generation, Python 3 with Pillow (PIL) for logo/color extraction, and poppler-utils (pdfimages, pdftotext, pdfinfo) plus LibreOffice for PDF rendering and verification.
 ---
 
 # Hebrew Document Translation
@@ -105,7 +105,9 @@ Hebrew documents need explicit RTL handling, Word does not infer it automaticall
 output. See `scripts/rtl_docx_helpers.js` for ready-to-use helpers, and the rules behind them:
 
 - Every `Paragraph` containing Hebrew needs `bidirectional: true`, and body paragraphs use
-  `alignment: AlignmentType.RIGHT`. **Table-cell paragraphs are the exception: leave alignment
+  `alignment: AlignmentType.RIGHT`. A paragraph with no Hebrew (an English-only brand or code line)
+  gets LTR base and LEFT alignment instead; `p()`, `heading1()` and `heading2()` pick this from the
+  text. Don't set a document-wide default alignment, so hand-built paragraphs don't inherit RIGHT. **Table-cell paragraphs are the exception: leave alignment
   unset.** OOXML `w:jc` is logical, `right` means the END of the line, which in a bidirectional
   paragraph is the visual left. An RTL cell paragraph with no alignment starts at its visual right
   edge, so Hebrew text and numbers line up together (`cell()` / `cellParagraph()` do this).
@@ -118,7 +120,8 @@ output. See `scripts/rtl_docx_helpers.js` for ready-to-use helpers, and the rule
   the rule the `hebrew-document-generator` skill documents for python-docx; it applies equally here.
 - Set `<w:bidi/>` on the section too, not only on paragraphs, so page flow, mirrored margins, and
   header/footer flow are RTL. docx-js has no option for it, so write the file with
-  `packRtlDocx(doc)` from the helpers instead of `Packer.toBuffer(doc)`.
+  `packRtlDocx(doc)` from the helpers instead of `Packer.toBuffer(doc)`. It needs `jszip`
+  installed directly (`npm i docx jszip`), not just the copy docx pulls in.
 - Don't put `rightToLeft` in the document's default run style: every run that doesn't override it
   (page-number fields, an English copyright line) would inherit RTL.
 - Use a font with solid Hebrew glyph coverage, `Arial` renders cleanly and matches most

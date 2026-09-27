@@ -16,7 +16,8 @@ const {
   PageBreak, Header, Footer, PageNumber, ImageRun, VerticalAlign, TableLayoutType
 } = require('docx');
 const fs = require('fs');
-const JSZip = require('jszip'); // installed as a dependency of docx; `npm i jszip` if your setup doesn't hoist it
+// Install both packages directly: `npm i docx jszip`. jszip is only needed by packRtlDocx(), and
+// relying on docx's own copy breaks under pnpm / Yarn PnP / nested installs that don't hoist it.
 
 // ---- adjust these to match your document / extracted reference colors ----
 const FONT = "Arial";          // solid Hebrew glyph coverage; swap for "David" if source uses a serif
@@ -70,16 +71,23 @@ function scriptRuns(text, runOpts = {}, paragraphText = text) {
 
 // ================= BASIC RTL PARAGRAPH HELPERS =================
 
-// Every paragraph containing Hebrew needs bidirectional:true + RIGHT alignment at the paragraph
-// level; run-level rightToLeft is decided by scriptRuns (see the rule above), never set by hand.
+// Base direction comes from the text: any Hebrew -> bidirectional + RIGHT; no Hebrew (an English
+// brand/code line) -> LTR + LEFT, so it doesn't hug the right margin. Run-level rightToLeft is
+// decided by scriptRuns (see the rule above), never set by hand.
+function baseDirection(text) {
+  const rtl = HEBREW_CHAR.test(String(text));
+  return { bidirectional: rtl, alignment: rtl ? AlignmentType.RIGHT : AlignmentType.LEFT };
+}
+
 function p(text, opts = {}) {
   const {
-    bold = false, size = 21, align = AlignmentType.RIGHT, italics = false,
+    bold = false, size = 21, align = null, italics = false,
     color = null, spacingAfter = 120, spacingBefore = 0, indent = null, border = null
   } = opts;
+  const dir = baseDirection(text);
   return new Paragraph({
-    alignment: align,
-    bidirectional: true,
+    alignment: align || dir.alignment,
+    bidirectional: dir.bidirectional,
     spacing: { after: spacingAfter, before: spacingBefore },
     indent: indent || undefined,
     border: border || undefined,
@@ -91,8 +99,7 @@ function heading1(text, opts = {}) {
   const { spacingBefore = 300 } = opts;
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
-    alignment: AlignmentType.RIGHT,
-    bidirectional: true,
+    ...baseDirection(text),
     spacing: { before: spacingBefore, after: 200 },
     children: scriptRuns(text, { bold: true, size: 30, color: BRAND_BLUE, font: FONT })
   });
@@ -101,8 +108,7 @@ function heading1(text, opts = {}) {
 function heading2(text) {
   return new Paragraph({
     heading: HeadingLevel.HEADING_2,
-    alignment: AlignmentType.RIGHT,
-    bidirectional: true,
+    ...baseDirection(text),
     spacing: { before: 260, after: 140 },
     // thin top rule = cheap visual separator between repeated blocks (questions, entries, etc.)
     border: { top: { style: BorderStyle.SINGLE, size: 4, color: GRAY_LINE, space: 8 } },
@@ -257,9 +263,10 @@ function buildDocumentSkeleton({ coverChildren, bodyChildren, header, footer, co
   return new Document({
     styles: {
       default: {
-        // No rightToLeft in the default run style: runs that don't set it (page-number fields, the
-        // English copyright line) would inherit RTL. Direction is set per paragraph/run instead.
-        document: { run: { font: FONT, size: 21 }, paragraph: { alignment: AlignmentType.RIGHT } }
+        // Only font/size here. No rightToLeft or paragraph alignment in the defaults: anything that
+        // doesn't set them (page-number fields, English cover content passed in coverChildren)
+        // would inherit RTL. Direction and alignment are set per paragraph/run instead.
+        document: { run: { font: FONT, size: 21 } }
       }
     },
     sections: [{
@@ -281,6 +288,7 @@ function buildDocumentSkeleton({ coverChildren, bodyChildren, header, footer, co
 // textDirection and before rtlGutter/docGrid, so it is inserted ahead of those when present.
 async function packRtlDocx(doc) {
   const { Packer } = require('docx');
+  const JSZip = require('jszip'); // direct dependency: `npm i docx jszip`
   const zip = await JSZip.loadAsync(await Packer.toBuffer(doc));
   const xml = await zip.file('word/document.xml').async('string');
   const patched = xml.replace(/<w:sectPr\b[^>]*>[\s\S]*?<\/w:sectPr>/g, sect => {
