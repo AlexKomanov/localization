@@ -50,9 +50,17 @@ const LATIN_CHAR = /[A-Za-z]/;
 // Text is still split per script segment so each run can carry its own font settings.
 // Pass `paragraphText` when these runs are only part of a paragraph (e.g. next to other runs),
 // so the Latin check covers the whole paragraph, not just this fragment.
+// A leading 1-2 digit list marker ("2. ", "10. ") is merged into the Hebrew segment that follows
+// it, so it rides inside the rtl-flagged run; as its own neutral run Word floats the period to the
+// wrong side (".2"). Only digits + period match, so a date like 13/01/2026 stays its own LTR run.
+const LIST_MARKER = /^\s*\d{1,2}\.\s*$/;
+
 function scriptRuns(text, runOpts = {}, paragraphText = text) {
   const mixed = LATIN_CHAR.test(String(paragraphText));
   const segments = String(text).match(/[\u0590-\u05FF]+|[^\u0590-\u05FF]+/g) || [String(text)];
+  if (segments.length >= 2 && LIST_MARKER.test(segments[0]) && HEBREW_CHAR.test(segments[1])) {
+    segments.splice(0, 2, segments[0] + segments[1]);
+  }
   return segments.map(segment => new TextRun({
     ...runOpts,
     text: segment,

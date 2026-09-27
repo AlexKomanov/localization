@@ -135,6 +135,8 @@ output. See `scripts/rtl_docx_helpers.js` for ready-to-use helpers, and the rule
   internally by `p()`, `heading1()`, `heading2()`, `cellParagraph()`, `buildHeader()`, and
   `buildFooter()`) instead of building a `TextRun` by hand; when the runs are only part of a
   paragraph, pass the full paragraph text as its third argument so the Latin check sees all of it.
+  It also merges a leading 1-2 digit list marker (`2. `, `10. `) into the Hebrew run after it, so
+  Word doesn't float the period to the wrong side (`.2`); a date like `13/01/2026` stays separate.
 - The logo is optional: `buildHeader()` drops the logo column when no logo file exists, so a
   document with no reference template builds without one.
 
