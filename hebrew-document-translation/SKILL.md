@@ -27,10 +27,13 @@ the Hebrew/RTL-specific layer on top.
 Ask (briefly, or infer from context) before building:
 
 1. **Source**: a specific uploaded file, or free text to translate?
-2. **Output format**: plain chat reply, Markdown file, or a formatted Word document (.docx)?
+2. **Output format**: plain chat reply, Markdown file, a formatted Word document (.docx), or a PDF?
    - A short passage/summary → answer inline, no file.
    - A standalone document the user will keep/share/print (report, contract, manual, letter, exam,
-     marketing piece, or anything else) → `.docx`.
+     marketing piece, or anything else) → `.docx` by default.
+   - The user asked for a PDF (or a fixed, non-editable file) → build the `.docx` the same way,
+     render it to PDF (Step 6), verify the rendered PDF, and deliver the PDF. Also offer the
+     `.docx` if they may want to edit it later.
 3. **Template to match**: is there a reference document (previously translated, or a company
    template) whose look-and-feel the new translation should mirror? If the user says "make it
    match X" or shares an existing Hebrew doc, treat that doc as the authoritative style guide,
@@ -101,12 +104,20 @@ When the user points at a reference Hebrew document (uploaded PDF/docx) to align
 Hebrew documents need explicit RTL handling, Word does not infer it automatically from docx-js
 output. See `scripts/rtl_docx_helpers.js` for ready-to-use helpers, and the rules behind them:
 
-- Every `Paragraph` containing Hebrew needs `bidirectional: true` and `alignment: AlignmentType.RIGHT`.
-- Every `TextRun` whose content is Hebrew needs `rightToLeft: true`. **Do not** flag a run
-  `rightToLeft: true` if it mixes Hebrew with Latin letters or digits in one string, Word reorders
-  and reflows a mixed run incorrectly (the Latin/digit portion can jump sides and punctuation can
-  reflow), even though the paragraph itself is correctly `bidirectional`. This is the same failure
-  mode documented for python-docx in the `hebrew-document-generator` skill; it applies equally here.
+- Every `Paragraph` containing Hebrew needs `bidirectional: true`, and body paragraphs use
+  `alignment: AlignmentType.RIGHT`. **Table-cell paragraphs are the exception: leave alignment
+  unset.** OOXML `w:jc` is logical, `right` means the END of the line, which in a bidirectional
+  paragraph is the visual left. An RTL cell paragraph with no alignment starts at its visual right
+  edge, so Hebrew text and numbers line up together (`cell()` / `cellParagraph()` do this).
+- **Run-level `rightToLeft` depends on the whole paragraph, not the run.** If the paragraph contains
+  any Latin letters, set `rightToLeft` on **no** run in it: Word honors the run flag strictly, so an
+  embedded identifier, number, or date next to an rtl-flagged run gets reversed (`7/2023` prints as
+  `2023/7`) and parentheses mis-pair, while the paragraph's own `bidirectional: true` already
+  orders the line. Only in a paragraph with no Latin letters (digits allowed) flag `rightToLeft`
+  on its Hebrew runs, which is what anchors a trailing colon (`מחלות רקע:`) correctly. This is
+  the rule the `hebrew-document-generator` skill documents for python-docx; it applies equally here.
+- Don't put `rightToLeft` in the document's default run style: every run that doesn't override it
+  (page-number fields, an English copyright line) would inherit RTL.
 - Use a font with solid Hebrew glyph coverage, `Arial` renders cleanly and matches most
   corporate/professional templates; `David` is a reasonable serif alternative if the source uses one.
 - **Tables**: set `visuallyRightToLeft: true` on any `Table` that should read right-to-left, this
@@ -116,11 +127,13 @@ output. See `scripts/rtl_docx_helpers.js` for ready-to-use helpers, and the rule
   fixed to the physical right, text block fixed to the physical left, regardless of document
   language) should stay plain LTR (don't set `visuallyRightToLeft`), check the reference document
   for which convention it uses; don't assume.
-- Mixed English/Hebrew inline (e.g. `NDA (Non-Disclosure Agreement)`) needs to be split into one
-  `TextRun` per script segment, with `rightToLeft: true` only on the Hebrew segments, not one run
-  covering the whole mixed string. Use the `scriptRuns()` helper in `scripts/rtl_docx_helpers.js`
-  (used internally by `p()`, `heading1()`, `heading2()`, `buildHeader()`, and `buildFooter()`)
-  instead of building a `TextRun` by hand for any text that might mix scripts.
+- Split text into one `TextRun` per script segment (so each run gets its own font settings) and
+  let the helper decide the run flags. Use `scriptRuns()` in `scripts/rtl_docx_helpers.js` (used
+  internally by `p()`, `heading1()`, `heading2()`, `cellParagraph()`, `buildHeader()`, and
+  `buildFooter()`) instead of building a `TextRun` by hand; when the runs are only part of a
+  paragraph, pass the full paragraph text as its third argument so the Latin check sees all of it.
+- The logo is optional: `buildHeader()` drops the logo column when no logo file exists, so a
+  document with no reference template builds without one.
 
 ### Step 5: Real, verified page numbers in the Table of Contents
 
@@ -148,7 +161,8 @@ new TextRun({ children: [PageNumber.TOTAL_PAGES] })
 
 ### Step 6: Verify before delivering
 
-Always render and check before calling `present_files`:
+Always render and check before calling `present_files`. If the user asked for a PDF, the
+`output.pdf` produced here is the deliverable, deliver it only after these checks pass:
 ```bash
 python /mnt/skills/public/docx/scripts/office/soffice.py --headless --convert-to pdf output.docx
 pdftotext -layout output.pdf -    # sanity-check Hebrew text, punctuation, embedded English terms
@@ -227,8 +241,10 @@ and the code in the Instructions section directly.
 - Translation that's too literal ("Google Translate style") sounds foreign to a professional Hebrew
   speaker, every sentence needs a pause and a check for whether a real Hebrew speaker would
   actually write it that way.
-- Forgetting RTL on tables (`visuallyRightToLeft`) or on individual text runs (`rightToLeft: true`)
-  produces a layout that looks like Hebrew "forced into" a document that's actually still LTR.
+- Forgetting RTL on tables (`visuallyRightToLeft`) or on paragraphs (`bidirectional: true`)
+  produces a layout that looks like Hebrew "forced into" a document that's actually still LTR. The
+  opposite mistake, `rightToLeft: true` on runs of a paragraph that also contains Latin text, makes
+  Word reverse embedded codes, numbers, and dates.
 - Relying on a live `TableOfContents` field to *verify* correctness in this environment, it doesn't
   update on LibreOffice's headless rendering and shows blank. Build and verify actual page numbers
   instead (Step 5).

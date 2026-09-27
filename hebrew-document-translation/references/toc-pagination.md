@@ -22,8 +22,11 @@ in Word, LibreOffice, and any PDF viewer, with zero dependency on the reader upd
    ```python
    import subprocess, re
    n_pages = 17  # from pdfinfo above
+   toc_pages = {2}  # PDF pages the TOC itself occupies - it repeats every heading, so never scan it
    mapping = {}
    for i in range(1, n_pages + 1):
+       if i in toc_pages:
+           continue
        out = subprocess.run(
            ['pdftotext', '-layout', '-f', str(i), '-l', str(i), 'draft.pdf', '-'],
            capture_output=True, text=True
@@ -37,6 +40,10 @@ in Word, LibreOffice, and any PDF viewer, with zero dependency on the reader upd
                        mapping[qnum] = i
    print(mapping)
    ```
+   **Skip the TOC pages.** The TOC lists every heading, so without `toc_pages` the first match for
+   each heading is the TOC row itself and every section maps to the TOC's page. If you don't know
+   in advance how many pages the TOC takes, find them first (the pages between the TOC title and
+   the first body heading) and set `toc_pages` from that.
    Pick a marker substring that appears **only** in the heading paragraph itself (not in body text,
    option lists, or elsewhere) - e.g. a fixed label you always put in the heading, like
    `"נקודה"`/`"נקודות"` next to a question number, or a distinctive section title. Cross-check by

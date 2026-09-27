@@ -21,13 +21,16 @@ const fs = require('fs');
 const FONT = "Arial";          // solid Hebrew glyph coverage; swap for "David" if source uses a serif
 const BRAND_BLUE = "015289";   // example - replace with a color actually extracted from the reference logo
 const GRAY_LINE = "BFBFBF";
-const LOGO_PATH = "./assets/logo.png"; // see references/logo-extraction.md for how to obtain this
+const LOGO_PATH = "./assets/logo.png"; // optional - see references/logo-extraction.md for how to obtain one
 const LOGO_W = 350, LOGO_H = 288;      // native pixel dimensions of the extracted logo asset
 
-function logoImage(scale) {
+// Returns null when there is no logo file, so a document with no reference template still builds
+// (callers omit the logo cell instead of failing with ENOENT).
+function logoImage(scale, logoPath = LOGO_PATH) {
+  if (!logoPath || !fs.existsSync(logoPath)) return null;
   return new ImageRun({
     type: "png",
-    data: fs.readFileSync(LOGO_PATH),
+    data: fs.readFileSync(logoPath),
     transformation: { width: Math.round(LOGO_W * scale), height: Math.round(LOGO_H * scale) }
   });
 }
@@ -35,26 +38,31 @@ function logoImage(scale) {
 // ================= SCRIPT-AWARE RUN SPLITTING =================
 // Hebrew Unicode block (letters, punctuation, points).
 const HEBREW_CHAR = /[\u0590-\u05FF]/;
+const LATIN_CHAR = /[A-Za-z]/;
 
-// A single TextRun that mixes Hebrew and Latin/digits and is flagged rightToLeft as one unit is a
-// known Word rendering bug: the Latin/digit portion can jump sides and punctuation can reflow
-// (the same failure mode documented for python-docx in the hebrew-document-generator skill).
-// Splitting the text into one run per script segment, and flagging rightToLeft only on the
-// Hebrew segments, avoids it. Paragraph-level bidirectional:true is still correct for any
-// paragraph containing Hebrew, mixed or not.
-function scriptRuns(text, runOpts = {}) {
+// Word honors run-level rightToLeft strictly: any Latin letter or number in (or beside) an
+// rtl-flagged run in a MIXED paragraph gets force-reversed ("7/2023" prints as "2023/7") and
+// parentheses mis-pair. The rule (same as the hebrew-document-generator skill, verified in Word):
+//   - paragraph contains Latin letters -> NO run gets rightToLeft; the paragraph's own
+//     bidirectional:true orders the line.
+//   - paragraph has no Latin letters (digits allowed) -> flag rightToLeft on the Hebrew runs only.
+// Text is still split per script segment so each run can carry its own font settings.
+// Pass `paragraphText` when these runs are only part of a paragraph (e.g. next to other runs),
+// so the Latin check covers the whole paragraph, not just this fragment.
+function scriptRuns(text, runOpts = {}, paragraphText = text) {
+  const mixed = LATIN_CHAR.test(String(paragraphText));
   const segments = String(text).match(/[\u0590-\u05FF]+|[^\u0590-\u05FF]+/g) || [String(text)];
   return segments.map(segment => new TextRun({
     ...runOpts,
     text: segment,
-    rightToLeft: HEBREW_CHAR.test(segment)
+    rightToLeft: !mixed && HEBREW_CHAR.test(segment)
   }));
 }
 
 // ================= BASIC RTL PARAGRAPH HELPERS =================
 
 // Every paragraph containing Hebrew needs bidirectional:true + RIGHT alignment at the paragraph
-// level; run-level rightToLeft is applied per script segment via scriptRuns, not to the whole run.
+// level; run-level rightToLeft is decided by scriptRuns (see the rule above), never set by hand.
 function p(text, opts = {}) {
   const {
     bold = false, size = 21, align = AlignmentType.RIGHT, italics = false,
@@ -93,26 +101,64 @@ function heading2(text) {
   });
 }
 
-// ================= RTL TABLE CELL HELPER =================
+// ================= RTL TABLE CELL HELPERS =================
 // Remember: set `visuallyRightToLeft: true` on the Table itself, then define columns in the
 // order you want them to appear reading right-to-left (rightmost column defined first).
+//
+// Cell paragraphs deliberately set NO alignment by default. OOXML `w:jc` is logical: "right" is
+// the END of the line, which in a bidirectional paragraph is the visual LEFT. An RTL cell
+// paragraph with alignment unset starts at its visual right edge, so Hebrew text and numbers line
+// up flush right together (same rule as hebrew-document-generator's set_cell_rtl_text).
+function cellParagraph(text, opts = {}) {
+  const { bold = false, size = 19, align = undefined, color = null } = opts;
+  return new Paragraph({
+    alignment: align,
+    bidirectional: true,
+    spacing: { after: 0 },
+    children: scriptRuns(text, { bold, size, color: color || undefined, font: FONT })
+  });
+}
+
 function cell(text, opts = {}) {
-  const { bold = false, width, shade = null, align = AlignmentType.RIGHT, size = 19 } = opts;
+  const { bold = false, width, shade = null, align = undefined, size = 19 } = opts;
   return new TableCell({
     width: width != null ? { size: width, type: WidthType.DXA } : undefined,
     shading: shade ? { type: ShadingType.CLEAR, fill: shade } : undefined,
     verticalAlign: VerticalAlign.CENTER,
-    children: [p(text, { bold, size, align, spacingAfter: 0 })]
+    children: [cellParagraph(text, { bold, size, align })]
   });
 }
 
 // ================= RUNNING HEADER (two physically-LTR columns: text column defined first so it
 // sits on the physical left, logo column physical right; text inside the left column is itself
-// right-aligned so Hebrew reads naturally) =================
-function buildHeader({ productLine, subtitleLine, noteLine }) {
+// right-aligned so Hebrew reads naturally). The logo column is dropped when there is no logo
+// file, so the header also works for documents with no reference template =================
+function buildHeader({ productLine, subtitleLine, noteLine, logoPath = LOGO_PATH }) {
+  const logo = logoImage(0.135, logoPath);
+  const textWidth = logo ? 7350 : 9350;
+  const textCell = new TableCell({
+    width: { size: textWidth, type: WidthType.DXA },
+    verticalAlign: VerticalAlign.CENTER,
+    children: [
+      new Paragraph({ alignment: AlignmentType.RIGHT, bidirectional: true, spacing: { after: 20 },
+        children: scriptRuns(productLine, { bold: true, size: 18, font: FONT }) }),
+      new Paragraph({ alignment: AlignmentType.RIGHT, bidirectional: true, spacing: { after: 20 },
+        children: scriptRuns(subtitleLine, { bold: true, size: 18, font: FONT }) }),
+      new Paragraph({ alignment: AlignmentType.RIGHT, bidirectional: true,
+        children: scriptRuns(noteLine, { italics: true, size: 15, font: FONT }) })
+    ]
+  });
+  const cells = [textCell];
+  if (logo) {
+    cells.push(new TableCell({
+      width: { size: 2000, type: WidthType.DXA },
+      verticalAlign: VerticalAlign.CENTER,
+      children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [logo] })]
+    }));
+  }
   const table = new Table({
     width: { size: 9350, type: WidthType.DXA },
-    columnWidths: [7350, 2000], // NOT visuallyRightToLeft: keeps logo pinned to physical right like most brand templates
+    columnWidths: logo ? [7350, 2000] : [9350], // NOT visuallyRightToLeft: keeps logo pinned to physical right like most brand templates
     layout: TableLayoutType.FIXED,
     borders: {
       top: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
@@ -122,27 +168,7 @@ function buildHeader({ productLine, subtitleLine, noteLine }) {
       insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
       insideVertical: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" }
     },
-    rows: [new TableRow({
-      children: [
-        new TableCell({
-          width: { size: 7350, type: WidthType.DXA },
-          verticalAlign: VerticalAlign.CENTER,
-          children: [
-            new Paragraph({ alignment: AlignmentType.RIGHT, bidirectional: true, spacing: { after: 20 },
-              children: scriptRuns(productLine, { bold: true, size: 18, font: FONT }) }),
-            new Paragraph({ alignment: AlignmentType.RIGHT, bidirectional: true, spacing: { after: 20 },
-              children: scriptRuns(subtitleLine, { bold: true, size: 18, font: FONT }) }),
-            new Paragraph({ alignment: AlignmentType.RIGHT, bidirectional: true,
-              children: scriptRuns(noteLine, { italics: true, size: 15, font: FONT }) })
-          ]
-        }),
-        new TableCell({
-          width: { size: 2000, type: WidthType.DXA },
-          verticalAlign: VerticalAlign.CENTER,
-          children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [logoImage(0.135)] })]
-        })
-      ]
-    })]
+    rows: [new TableRow({ children: cells })]
   });
   return new Header({ children: [table] });
 }
@@ -153,17 +179,21 @@ function buildEmptyHeader() {
 
 // ================= RUNNING FOOTER (live page count + version/date) =================
 function buildFooter({ versionLabel, dateLabel }) {
+  // One paragraph = one Latin check: if the version/date labels contain Latin letters, the
+  // Hebrew runs here must not carry rightToLeft either (see scriptRuns).
+  const tail = `    |    ${versionLabel}    |    ${dateLabel}`;
+  const rtl = !LATIN_CHAR.test(tail);
   return new Footer({
     children: [
       new Paragraph({
         border: { top: { style: BorderStyle.SINGLE, size: 4, color: GRAY_LINE, space: 6 } },
         alignment: AlignmentType.CENTER, bidirectional: true, spacing: { before: 60, after: 20 },
         children: [
-          new TextRun({ text: "עמוד ", size: 17, rightToLeft: true, font: FONT }),
+          new TextRun({ text: "עמוד ", size: 17, rightToLeft: rtl, font: FONT }),
           new TextRun({ children: [PageNumber.CURRENT], size: 17, font: FONT }),      // live field - works in Word + LibreOffice
-          new TextRun({ text: " מתוך ", size: 17, rightToLeft: true, font: FONT }),
+          new TextRun({ text: " מתוך ", size: 17, rightToLeft: rtl, font: FONT }),
           new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 17, font: FONT }),  // live field
-          ...scriptRuns(`    |    ${versionLabel}    |    ${dateLabel}`, { size: 17, font: FONT })
+          ...scriptRuns(tail, { size: 17, font: FONT })
         ]
       }),
       new Paragraph({
@@ -183,13 +213,13 @@ function tocRow(title, pageNum, opts = {}) {
         width: { size: 8200, type: WidthType.DXA },
         borders: { bottom: { style: BorderStyle.DOTTED, size: 4, color: "999999" } },
         margins: { bottom: 40, top: 40 },
-        children: [p(title, { bold, size: 20, spacingAfter: 0 })]
+        children: [cellParagraph(title, { bold, size: 20 })] // no alignment: RTL start edge = visual right
       }),
       new TableCell({
         width: { size: 900, type: WidthType.DXA },
         borders: { bottom: { style: BorderStyle.DOTTED, size: 4, color: "999999" } },
         margins: { bottom: 40, top: 40 },
-        children: [p(String(pageNum), { size: 20, align: AlignmentType.CENTER, spacingAfter: 0 })]
+        children: [cellParagraph(String(pageNum), { size: 20, align: AlignmentType.CENTER })]
       })
     ]
   });
@@ -218,7 +248,9 @@ function buildDocumentSkeleton({ coverChildren, bodyChildren, header, footer, co
   return new Document({
     styles: {
       default: {
-        document: { run: { font: FONT, size: 21, rightToLeft: true }, paragraph: { alignment: AlignmentType.RIGHT } }
+        // No rightToLeft in the default run style: runs that don't set it (page-number fields, the
+        // English copyright line) would inherit RTL. Direction is set per paragraph/run instead.
+        document: { run: { font: FONT, size: 21 }, paragraph: { alignment: AlignmentType.RIGHT } }
       }
     },
     sections: [{
@@ -235,7 +267,7 @@ function buildDocumentSkeleton({ coverChildren, bodyChildren, header, footer, co
 
 module.exports = {
   FONT, BRAND_BLUE, GRAY_LINE, logoImage,
-  scriptRuns, p, heading1, heading2, cell,
+  scriptRuns, p, heading1, heading2, cellParagraph, cell,
   buildHeader, buildEmptyHeader, buildFooter,
   tocRow, buildTocTable, buildDocumentSkeleton
 };
